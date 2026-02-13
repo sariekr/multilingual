@@ -1,0 +1,184 @@
+{
+  "model_name": "e5_small",
+  "evaluation_mode": "true_crosslingual",
+  "total_queries": 593,
+  "duration_seconds": 8.18,
+  "true_crosslingual": {
+    "overall": {
+      "top_1": 0.0,
+      "top_3": 0.0034,
+      "top_5": 0.0051,
+      "total_queries": 593
+    },
+    "pair_matrix_top1": {
+      "de": {
+        "de": null,
+        "en": 0.0,
+        "es": 0.0,
+        "fr": 0.0,
+        "ja": 0.0,
+        "zh": 0.0
+      },
+      "en": {
+        "de": 0.0,
+        "en": null,
+        "es": 0.0,
+        "fr": 0.0,
+        "ja": 0.0,
+        "zh": 0.0
+      },
+      "es": {
+        "de": 0.0,
+        "en": 0.0,
+        "es": null,
+        "fr": 0.0,
+        "ja": 0.0,
+        "zh": 0.0
+      },
+      "fr": {
+        "de": 0.0,
+        "en": 0.0,
+        "es": 0.0,
+        "fr": null,
+        "ja": 0.0,
+        "zh": 0.0
+      },
+      "ja": {
+        "de": 0.0,
+        "en": 0.0,
+        "es": 0.0,
+        "fr": 0.0,
+        "ja": null,
+        "zh": 0.0
+      },
+      "zh": {
+        "de": 0.0,
+        "en": 0.0,
+        "es": 0.0,
+        "fr": 0.0,
+        "ja": 0.0,
+        "zh": null
+      }
+    },
+    "per_query_language": {
+      "de": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0108,
+        "total_queries": 93
+      },
+      "en": {
+        "top_1": 0.0,
+        "top_3": 0.0187,
+        "top_5": 0.0187,
+        "total_queries": 107
+      },
+      "es": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 99
+      },
+      "fr": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 102
+      },
+      "ja": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 98
+      },
+      "zh": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 94
+      }
+    },
+    "per_target_language": {
+      "de": {
+        "top_1": 0.0,
+        "top_3": 0.0077,
+        "top_5": 0.0077,
+        "total_queries": 130
+      },
+      "en": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 60
+      },
+      "es": {
+        "top_1": 0.0,
+        "top_3": 0.01,
+        "top_5": 0.01,
+        "total_queries": 100
+      },
+      "fr": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 84
+      },
+      "ja": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.01,
+        "total_queries": 100
+      },
+      "zh": {
+        "top_1": 0.0,
+        "top_3": 0.0,
+        "top_5": 0.0,
+        "total_queries": 119
+      }
+    },
+    "best_pairs_top1": [
+      [
+        "de->en",
+        0.0
+      ],
+      [
+        "de->es",
+        0.0
+      ],
+      [
+        "de->fr",
+        0.0
+      ],
+      [
+        "de->ja",
+        0.0
+      ],
+      [
+        "de->zh",
+        0.0
+      ]
+    ],
+    "worst_pairs_top1": [
+      [
+        "zh->de",
+        0.0
+      ],
+      [
+        "zh->en",
+        0.0
+      ],
+      [
+        "zh->es",
+        0.0
+      ],
+      [
+        "zh->fr",
+        0.0
+      ],
+      [
+        "zh->ja",
+        0.0
+      ]
+    ]
+  }
+}
