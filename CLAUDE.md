@@ -325,6 +325,8 @@ Bu paradoks, monolingual ve cross-lingual kullanim senaryolari icin **farkli mod
 
 **Bu benchmark'in ana sonucu.** Her soruyu 5 dile cevirip, orijinal dildeki review'i bulabilme yetenegini olcer.
 
+**Not:** Asagidaki tablolarda "Language" sutunu **sorunun soruldugu dili** (`query_language`) gosterir, review'in dilini degil. Ornegin DE = "Almanca soru ile baska dillerdeki review'leri bulma basarisi". Hedef review hicbir zaman soruyla ayni dilde degildir.
+
 #### Unfiltered (2987 query)
 
 | Metrik | e5_small | minilm_multilingual |
@@ -596,6 +598,22 @@ Onemli field'lar:
 
 **Olctugu sey:** Modelin dillerarasi semantik anlama ve eslesme yetenegini **dogrudan** olcer. "Bu modele Japonca soru sorarsam, Almanca review'deki cevabi bulabilir mi?" sorusuna cevap verir.
 
+**ONEMLI — Sonuc Tablolarinda "Language" Sutunu:**
+- **Monolingual tabloda** "Language" = hem sorunun hem review'in dili (ayni dil). DE = Almanca soru → Almanca review'ler arasinda ara.
+- **True Cross-Lingual tabloda** "Language" = **sorunun soruldugu dil** (`query_language`). DE = Almanca soru ile **baska dillerdeki** (EN/ES/FR/JA/ZH) review'leri bulma basarisi. Hedef review hicbir zaman soruyla ayni dilde degildir — diyagonal (ayni dil) ciftler dahil edilmez.
+- Ornek: True cross-lingual tablosunda `DE Top-1 = 0.80%` demek, Almanca sorulan sorularin %0.80'i baska dillerdeki dogru review'i 1. sirada bulabilmis demektir.
+
+**Somut Ornek (adim adim):**
+1. Orijinal review Fransizca: "La batterie est terrible" (`language=fr`, `product_id=product_fr_12345`)
+2. Bu review'den Fransizca soru uretildi: "Comment est la batterie?"
+3. Bu soru Ingilizce'ye cevrildi: "How is the battery?" (`query_language=en`)
+4. Ingilizce soru Qdrant'a soruldu (filtre yok, tum 1.2M review'de arama)
+5. Model Top-5 sonucta `product_fr_12345`'i bulabildi mi?
+   - Bulduysa → **EN satirinin** puani yukselir (cunku soru Ingilizce soruldu)
+   - Bulamadiysa → miss
+
+Ayni Fransizca soru Japonca'ya da cevrilir ("バッテリーはどうですか？", `query_language=ja`). Japonca soru Fransizca review'i bulabilirse → **JA satirinin** puani yukselir. **Hangi dilde sorarsan, o dilin satirina duser.**
+
 #### 4.4 Ground Truth Eslesmesi
 
 Iki asamali eslesme yapilir:
@@ -687,6 +705,7 @@ Iki asamali eslesme yapilir:
 5. ~~**GPU desteği ekle:** `gpu_batch_size`, CUDA device detection, `--no-cosine-fallback`, `--max_reviews_per_lang 0`.~~ **TAMAMLANDI**
 6. ~~**RunPod A100'de e5_small ve minilm_multilingual'i tum setle (1.2M review) test et.**~~ **TAMAMLANDI** — Asagida sonuclar var.
 7. ~~**RunPod A100'de llama_embed_nemotron_8b'yi 50K/dil ile test et.**~~ **TAMAMLANDI** — Mono+cross eval yapildi (true cross-lingual yapilmadi).
+8. ~~**e5_base'i 1.2M review ile test et (mono + cross + true_cross).**~~ **TAMAMLANDI** — Mono Top-1=%13.17 (e5_small'dan %34 iyi), true cross hala ~%0. Paradoks devam ediyor.
 
 ## GPU Benchmark Sonuclari (RunPod A100 80GB, Subat 2026)
 
@@ -702,7 +721,8 @@ Iki asamali eslesme yapilir:
 
 | Model | Mono Top-1 | Mono Top-5 | Cross Top-1 | Cross Top-5 | True Cross Top-1 | Embed Hizi |
 |-------|-----------|-----------|-------------|-------------|------------------|------------|
-| **e5_small** (1.2M) | **9.83%** | **16.83%** | **8.83%** | **15.33%** | 0.07% | 333 r/s |
+| **e5_base** (1.2M) | **13.17%** | **20.33%** | **12.33%** | **19.00%** | 0.17% | ~440 r/s |
+| **e5_small** (1.2M) | 9.83% | 16.83% | 8.83% | 15.33% | 0.07% | 333 r/s |
 | **minilm_multilingual** (1.2M) | 2.50% | 6.50% | 2.33% | 4.17% | **0.87%** | 343 r/s |
 | **nemotron_8b** (300K) | 3.83% | 6.50% | 3.67% | 6.00% | henuz yok | 28 r/s |
 
@@ -710,15 +730,17 @@ Iki asamali eslesme yapilir:
 
 ### Dil Ayirimi Paradoksu — GPU Sonuclariyla Dogrulandi
 
-| Ozellik | e5_small | minilm_multilingual |
-|---------|----------|---------------------|
-| Mono Top-1 | **9.83%** (4x daha iyi) | 2.50% |
-| True Cross Top-1 | 0.07% (neredeyse 0) | **0.87%** (12x daha iyi) |
-| Retrieval matrix | DE→%100 DE, JA→%100 JA | DE→%46 DE, geri kalan karisik |
+| Ozellik | e5_base | e5_small | minilm_multilingual |
+|---------|--------|----------|---------------------|
+| Mono Top-1 | **13.17%** (en iyi) | 9.83% | 2.50% |
+| True Cross Top-1 | 0.17% (neredeyse 0) | 0.07% (neredeyse 0) | **0.87%** (en iyi) |
+| Retrieval matrix | DE/JA/ZH→%100 kendi dili | DE/JA/ZH→%100 kendi dili | DE→%46 DE, geri kalan karisik |
 
 **Cosine fallback'siz temiz sonuclarla paradoks daha net gorunuyor:**
-- e5_small monolingual'de cok iyi ama cross-lingual'de **tamamen kor** (2987 soruda sadece 2 hit).
+- e5_base monolingual'de **en iyi** (%13.17) ama cross-lingual'de hala **neredeyse sifir** (%0.17).
+- e5 ailesinde model buyutmek monolingual'i iyilestiriyor ama cross-lingual'i **cozmuyor**.
 - minilm_multilingual monolingual'de kotu ama cross-lingual'de en azindan **26 hit** buluyor.
+- **e5_base'in cross-lingual hit'leri sadece yakin Latin dil ciftlerinden:** en→es (%2), en→fr (%1), fr→es (%1). CJK tamamen sifir.
 
 ### Onceki Mac Sonuclariyla Karsilastirma
 
@@ -741,7 +763,7 @@ Asagidaki modeller henuz test edilmedi. Her biri icin 3 komut: embed (1.2M) → 
 
 **Siralama (kucukten buyuge, tahmini embed suresi 1.2M review icin):**
 
-1. `e5_base` (~45 dk) — e5 ailesinin boyut etkisini gormek icin
+1. ~~`e5_base` (~45 dk)~~ **TAMAMLANDI** — Mono Top-1=%13.17, True Cross=%0.17
 2. `mpnet_multilingual` (~45 dk)
 3. `nomic_embed_v1_5` (~45 dk)
 4. `gte_multilingual_base` (~45 dk)
@@ -792,11 +814,14 @@ curl http://localhost:6333/collections | python -m json.tool
 # 4. Modelleri sirayla calistir (yukaridaki komutlar)
 ```
 
-**UYARI:** RunPod pod restart edilirse Qdrant'taki tum collection'lar silinir (Qdrant storage /workspace'te degil). Mevcut collection'lar:
-- `multilingual_e5_small` (1.2M review) ✓
-- `multilingual_minilm_multilingual` (1.2M review) ✓
-- `multilingual_llama_embed_nemotron_8b` (300K review) ✓
-- `multilingual_e5_base` (yarida kaldi, yeniden baslatilmali)
+**UYARI:** RunPod pod restart edilirse Qdrant'taki tum collection'lar silinir (Qdrant storage /workspace'te degil). Pod durduruldu — tum collection'lar silinmis olacak, her model icin embedding'ler yeniden yapilmali.
+
+**Pod restart sonrasi yeniden yapilmasi gerekenler:**
+- `multilingual_e5_small` (1.2M review) — eval tamamlandi, yeniden embed gerekli SADECE eger yeniden eval yapilacaksa
+- `multilingual_minilm_multilingual` (1.2M review) — eval tamamlandi, ayni durum
+- `multilingual_e5_base` (1.2M review) — eval tamamlandi, ayni durum
+- `multilingual_llama_embed_nemotron_8b` (300K review) — true cross-lingual eval yapilmadi, yeniden embed gerekebilir
+- Kalan 7 model: henuz hic embed yapilmadi
 
 ### Embedding Hizlari (Gercek Olcumler, A100 80GB)
 
