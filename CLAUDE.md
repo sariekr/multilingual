@@ -684,16 +684,128 @@ Iki asamali eslesme yapilir:
 2. ~~`evaluate_multilingual.py --mode true_crosslingual` ile e5_small ve minilm_multilingual degerlendir.~~ **TAMAMLANDI** — 6x6 language pair matrix uretildi.
 3. ~~Product ID coverage sorununu tespit et ve coz.~~ **TAMAMLANDI** — Filtered query dosyalari olusturuldu (119 mono + 593 cross).
 4. ~~Filtered sonuclarla eval yeniden calistir.~~ **TAMAMLANDI** — Sonuclar yukarida raporlandi.
+5. ~~**GPU desteği ekle:** `gpu_batch_size`, CUDA device detection, `--no-cosine-fallback`, `--max_reviews_per_lang 0`.~~ **TAMAMLANDI**
+6. ~~**RunPod A100'de e5_small ve minilm_multilingual'i tum setle (1.2M review) test et.**~~ **TAMAMLANDI** — Asagida sonuclar var.
+7. ~~**RunPod A100'de llama_embed_nemotron_8b'yi 50K/dil ile test et.**~~ **TAMAMLANDI** — Mono+cross eval yapildi (true cross-lingual yapilmadi).
 
-## Sonraki Adimlar (Oneriler)
-1. ~~**Daha guclu modelleri dene:** bge_m3, jina-v3, e5-large-instruct — Dil Ayirimi Paradoksu'nu kirabilen bir model var mi?~~ **DEVAM EDIYOR** — RunPod A100'de test ediliyor.
-2. ~~**Cosine similarity threshold'unu kaldir:** Tum eval modlarinda sadece product_id exact match kullan.~~ **TAMAMLANDI** — `--no-cosine-fallback` flag eklendi.
-3. **Soru uretimini Qdrant corpus'una sinirla:** Artik gereksiz — `--max_reviews_per_lang 0` ile tum review'lar indexlenebiliyor, coverage %100.
-4. ~~**Daha fazla review indexle:** 20K/dil yerine 50K+ indexleyerek product_id coverage'i artir.~~ **TAMAMLANDI** — `--max_reviews_per_lang 0` (tum set) ve `50000` (50K/dil) secenekleri eklendi.
-5. ~~**bge_m3 ve qwen3_emb_06b'yi CUDA GPU'lu bir makinede test et.**~~ **DEVAM EDIYOR** — RunPod A100'de.
-6. ~~**e5_base ve e5_large_instruct'i dene**~~ **DEVAM EDIYOR** — RunPod A100'de.
-7. **Ceviri kalitesi dogrulamasi:** langdetect/fasttext ile cevirilmis sorularin hedef dilde olup olmadigini kontrol et.
-8. **Reranker pipeline testi:** "retrieve many with minilm → rerank with e5" gibi iki asamali bir pipeline'in cross-lingual performansini olc.
+## GPU Benchmark Sonuclari (RunPod A100 80GB, Subat 2026)
+
+### Test Ortami
+- NVIDIA A100-SXM4-80GB
+- Qdrant 1.12.0 (local binary)
+- **1.2M review** (200K/dil, train.csv tamami) — e5_small, minilm_multilingual
+- **300K review** (50K/dil) — llama_embed_nemotron_8b
+- 600 monolingual query + 2987 cross-lingual query
+- **`--no-cosine-fallback`** — sadece product_id exact match (temiz sonuclar)
+
+### Sonuc Tablosu
+
+| Model | Mono Top-1 | Mono Top-5 | Cross Top-1 | Cross Top-5 | True Cross Top-1 | Embed Hizi |
+|-------|-----------|-----------|-------------|-------------|------------------|------------|
+| **e5_small** (1.2M) | **9.83%** | **16.83%** | **8.83%** | **15.33%** | 0.07% | 333 r/s |
+| **minilm_multilingual** (1.2M) | 2.50% | 6.50% | 2.33% | 4.17% | **0.87%** | 343 r/s |
+| **nemotron_8b** (300K) | 3.83% | 6.50% | 3.67% | 6.00% | henuz yok | 28 r/s |
+
+**ONEMLI:** Nemotron 300K review'la test edildi, diger ikisi 1.2M ile. Adil karsilastirma icin nemotron'u da 1.2M ile test etmek veya diger modelleri de 300K ile test etmek gerekir. Nemotron'un 300K'daki %3.83'u, matchable query oranina gore normalize edildiginde daha yuksek olabilir.
+
+### Dil Ayirimi Paradoksu — GPU Sonuclariyla Dogrulandi
+
+| Ozellik | e5_small | minilm_multilingual |
+|---------|----------|---------------------|
+| Mono Top-1 | **9.83%** (4x daha iyi) | 2.50% |
+| True Cross Top-1 | 0.07% (neredeyse 0) | **0.87%** (12x daha iyi) |
+| Retrieval matrix | DE→%100 DE, JA→%100 JA | DE→%46 DE, geri kalan karisik |
+
+**Cosine fallback'siz temiz sonuclarla paradoks daha net gorunuyor:**
+- e5_small monolingual'de cok iyi ama cross-lingual'de **tamamen kor** (2987 soruda sadece 2 hit).
+- minilm_multilingual monolingual'de kotu ama cross-lingual'de en azindan **26 hit** buluyor.
+
+### Onceki Mac Sonuclariyla Karsilastirma
+
+| Ayar | e5_small Top-1 | e5_small Top-5 |
+|------|---------------|---------------|
+| Mac, 20K/dil, cosine fallback ON, 119 filtered query | 35.2% | 100% |
+| Mac, 20K/dil, cosine fallback ON, 600 unfiltered query | 23.3% | 100% |
+| **GPU, 1.2M, cosine fallback OFF, 600 query** | **9.83%** | **16.83%** |
+
+**Neden bu kadar farkli:**
+1. Top-5=%100 tamamen cosine similarity fallback'ten geliyordu (sahte). `--no-cosine-fallback` ile gercek accuracy ortaya cikti.
+2. 1.2M review arama uzayi 120K'ya gore 10x buyuk — dogru review'i bulmak daha zor.
+3. %9.83 Top-1 ve %16.83 Top-5, 200K review arasinda product_id exact match ile **gercek baseline**.
+
+## Sonraki Session: Yapilacaklar (RunPod A100)
+
+### Oncelik 1 — Kalan Modelleri Calistir
+
+Asagidaki modeller henuz test edilmedi. Her biri icin 3 komut: embed (1.2M) → eval mono+cross → eval true_cross.
+
+**Siralama (kucukten buyuge, tahmini embed suresi 1.2M review icin):**
+
+1. `e5_base` (~45 dk) — e5 ailesinin boyut etkisini gormek icin
+2. `mpnet_multilingual` (~45 dk)
+3. `nomic_embed_v1_5` (~45 dk)
+4. `gte_multilingual_base` (~45 dk)
+5. `e5_large_instruct` (~90 dk) — **en onemli**: e5 ailesinin en buyugu, cross-lingual'de daha iyi mi?
+6. `bge_m3` (~90 dk) — **en onemli**: MTEB'de yuksek, cross-lingual'de nasil?
+7. `jina_v3` (~90 dk) — multilingual odakli model
+8. `qwen3_emb_06b` (~2 saat) — LLM-based embedding
+9. `llama_embed_nemotron_8b` (~3+ saat) — 1.2M ile yeniden calistir (adil karsilastirma icin)
+
+**Her model icin komutlar:**
+```bash
+python -u rag_loader_multilingual.py --model MODEL_NAME --max_reviews_per_lang 0
+python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_multilingual.json --mode both --top_k 5 --no-cosine-fallback --output_dir evaluation_results
+python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_crosslingual.json --mode true_crosslingual --top_k 5 --output_dir evaluation_results
+```
+
+### Oncelik 2 — Sonuclari Kaydet ve Analiz Et
+
+```bash
+# RunPod'da tum eval bittikten sonra:
+cd /workspace/multilingual
+git add evaluation_results/
+git commit -m "Add GPU benchmark results for all models"
+git push
+```
+
+### Oncelik 3 — Nemotron True Cross-Lingual
+
+Nemotron'un true cross-lingual eval'i henuz yapilmadi:
+```bash
+python -u evaluate_multilingual.py --model llama_embed_nemotron_8b --queries_file benchmark_queries_crosslingual.json --mode true_crosslingual --top_k 5 --output_dir evaluation_results
+```
+**Not:** Bu eval, nemotron'un 50K/dil collection'indan yapilacak. 1.2M ile yeniden embed edilirse daha adil olur.
+
+### RunPod Baslangic Checklist (Yeni Session)
+
+```bash
+# 1. Qdrant'i kontrol et (pod restart olduysa yeniden baslat)
+curl http://localhost:6333 || (nohup ./qdrant > qdrant.log 2>&1 &)
+
+# 2. Repo'yu guncelle
+cd /workspace/multilingual
+git pull
+
+# 3. Mevcut collection'lari kontrol et
+curl http://localhost:6333/collections | python -m json.tool
+
+# 4. Modelleri sirayla calistir (yukaridaki komutlar)
+```
+
+**UYARI:** RunPod pod restart edilirse Qdrant'taki tum collection'lar silinir (Qdrant storage /workspace'te degil). Mevcut collection'lar:
+- `multilingual_e5_small` (1.2M review) ✓
+- `multilingual_minilm_multilingual` (1.2M review) ✓
+- `multilingual_llama_embed_nemotron_8b` (300K review) ✓
+- `multilingual_e5_base` (yarida kaldi, yeniden baslatilmali)
+
+### Embedding Hizlari (Gercek Olcumler, A100 80GB)
+
+| Model | gpu_batch_size | reviews/s | 1.2M sure | Notlar |
+|-------|---------------|-----------|-----------|--------|
+| `e5_small` | 256 | ~333 | ~60 dk | batch_size=32 ile 650 r/s (upsert darbogazli idi) |
+| `minilm_multilingual` | 256 | ~343 | ~58 dk | |
+| `e5_base` | 128 | ~440 | ~45 dk | (tahmini, yarida kesildi) |
+| `llama_embed_nemotron_8b` | 16 | ~28 | ~12 saat | 8B model, BF16, cok yavas |
 
 ## RunPod GPU ile Calistirma
 
@@ -730,7 +842,10 @@ echo "QDRANT_LOCAL_URL=http://localhost:6333" > .env
 3. **`set_submodule` hatasi (INT8 + custom model)** — `LlamaBidirectionalModel` gibi custom modellerde bitsandbytes INT8 uyumsuz olabiliyor. A100 80GB'de INT8'e gerek yok, BF16 yeterli. Cozum: `load_in_8bit: False` yap.
 4. **`flash_attn not installed`** — `pip install flash-attn --no-build-isolation` ile kur. Kurulum uzun surerse `sdpa` kullan: config'deki `flash_attention_2` -> `sdpa` degistir.
 5. **`tmux: command not found`** — RunPod'da tmux yok. `nohup ... &` ile arka planda calistir.
-6. **Qdrant client/server versiyon uyumsuzlugu uyarisi** — Gozardi edilebilir, calisiyor.
+6. **Qdrant client/server versiyon uyumsuzlugu uyarisi** — Gozardi edilebilir, calisiyor. Ama `.search()` method hatasi alirsan: `pip install qdrant-client==1.12.1` ile client'i downgrade et.
+7. **`QdrantClient has no attribute search`** — qdrant-client 1.16+ ile server 1.12 arasinda API degisikligi. Cozum: `pip install qdrant-client==1.12.1`.
+8. **Qdrant upsert timeout (5000 point)** — Buyuk batch upsert timeout atabiliyor. `upsert_batch_size` 1000'e dusuruldu. 200'e de dusurulebilir ama daha yavas.
+9. **Pod restart = Qdrant data siliniyor** — Qdrant storage default olarak `/workspace` disinda. Pod restart edilirse tum collection'lar kaybolur, embedding'ler yeniden yapilmali.
 
 ### Model Calistirma Komutlari
 
@@ -761,20 +876,24 @@ tail -f embedding_MODEL_NAME.log
 nohup python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_multilingual.json --mode both --top_k 5 --no-cosine-fallback --output_dir evaluation_results > eval_MODEL_NAME_mono.log 2>&1 &
 ```
 
-### Tahmini Embedding Sureleri (A100 80GB, 300K review = 50K/dil)
+### Tahmini Embedding Sureleri (A100 80GB, 1.2M review = tum set)
 
-| Model | Tahmini Hiz | Tahmini Sure | Notlar |
-|-------|-------------|-------------|--------|
-| `e5_small` | ~500+ r/s | ~10 dk | Kucuk, hizli |
-| `e5_base` | ~300+ r/s | ~15 dk | |
-| `minilm_multilingual` | ~500+ r/s | ~10 dk | |
-| `mpnet_multilingual` | ~300+ r/s | ~15 dk | |
-| `nomic_embed_v1_5` | ~300+ r/s | ~15 dk | |
-| `gte_multilingual_base` | ~300+ r/s | ~15 dk | |
-| `e5_large_instruct` | ~150+ r/s | ~30 dk | |
-| `bge_m3` | ~150+ r/s | ~30 dk | Mac'te 22 r/s idi |
-| `jina_v3` | ~150+ r/s | ~30 dk | |
-| `llama_embed_nemotron_8b` | ~35-70 r/s | ~1-2.5 saat | 8B model, BF16, en yavas |
+| Model | gpu_batch | Gercek/Tahmini Hiz | 1.2M Sure | Notlar |
+|-------|-----------|-------------------|-----------|--------|
+| `e5_small` | 256 | **333 r/s** (gercek) | ~60 dk | |
+| `minilm_multilingual` | 256 | **343 r/s** (gercek) | ~58 dk | |
+| `minilm_v2` | 256 | ~400 r/s | ~50 dk | EN-only, kucuk |
+| `e5_base` | 128 | **~440 r/s** (gercek, yarida kesildi) | ~45 dk | |
+| `mpnet_multilingual` | 128 | ~350 r/s | ~57 dk | |
+| `nomic_embed_v1_5` | 128 | ~350 r/s | ~57 dk | |
+| `gte_multilingual_base` | 128 | ~350 r/s | ~57 dk | |
+| `e5_large_instruct` | 64 | ~150 r/s | ~2 saat | |
+| `bge_m3` | 64 | ~150 r/s | ~2 saat | Mac'te 22 r/s idi |
+| `jina_v3` | 64 | ~150 r/s | ~2 saat | |
+| `qwen3_emb_06b` | 32 | ~80 r/s | ~4 saat | LLM-based |
+| `llama_embed_nemotron_8b` | 16 | **28 r/s** (gercek) | ~12 saat | 8B, BF16 |
+
+**Not:** Gercek olcumler `(gercek)` ile isaretlenmistir, digerler tahminidir. Upsert_batch_size=1000.
 
 ### Sonuclari Mac'e Cekme
 
