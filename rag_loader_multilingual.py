@@ -64,6 +64,7 @@ MODEL_CONFIGS = {
         "dimension": 384,
         "max_length": 512,
         "batch_size": 32,
+        "gpu_batch_size": 256,
         "query_prefix": "query: ",
         "doc_prefix": "passage: "
     },
@@ -72,6 +73,7 @@ MODEL_CONFIGS = {
         "dimension": 768,
         "max_length": 512,
         "batch_size": 16,
+        "gpu_batch_size": 128,
         "query_prefix": "query: ",
         "doc_prefix": "passage: "
     },
@@ -80,6 +82,7 @@ MODEL_CONFIGS = {
         "dimension": 768,
         "max_length": 512,
         "batch_size": 16,
+        "gpu_batch_size": 128,
         "prefix": ""
     },
     "minilm_multilingual": {
@@ -87,6 +90,7 @@ MODEL_CONFIGS = {
         "dimension": 384,
         "max_length": 512,
         "batch_size": 32,
+        "gpu_batch_size": 256,
         "prefix": ""
     },
     "minilm_v2": {
@@ -94,6 +98,7 @@ MODEL_CONFIGS = {
         "dimension": 384,
         "max_length": 256,
         "batch_size": 64,
+        "gpu_batch_size": 256,
         "prefix": ""
     },
     "qwen3_emb_06b": {
@@ -101,6 +106,7 @@ MODEL_CONFIGS = {
         "dimension": 1024,
         "max_length": 8192,
         "batch_size": 8,
+        "gpu_batch_size": 32,
         "prefix": "",
         "query_prompt_name": "query",
     },
@@ -113,6 +119,7 @@ MODEL_CONFIGS = {
         "dimension": 1024,
         "max_length": 512,
         "batch_size": 8,
+        "gpu_batch_size": 64,
         "query_prefix": "query: ",
         "doc_prefix": "passage: "
     },
@@ -121,6 +128,7 @@ MODEL_CONFIGS = {
         "dimension": 1024,
         "max_length": 512,
         "batch_size": 8,
+        "gpu_batch_size": 64,
         "prefix": ""
     },
     "gte_multilingual_base": {
@@ -128,6 +136,7 @@ MODEL_CONFIGS = {
         "dimension": 768,
         "max_length": 512,
         "batch_size": 16,
+        "gpu_batch_size": 128,
         "prefix": "",
         "trust_remote_code": True
     },
@@ -136,6 +145,7 @@ MODEL_CONFIGS = {
         "dimension": 1024,
         "max_length": 512,
         "batch_size": 8,
+        "gpu_batch_size": 64,
         "prefix": "",
         "trust_remote_code": True
     },
@@ -144,6 +154,7 @@ MODEL_CONFIGS = {
         "dimension": 768,
         "max_length": 512,
         "batch_size": 16,
+        "gpu_batch_size": 128,
         "doc_prefix": "search_document: ",
         "query_prefix": "search_query: ",
         "trust_remote_code": True
@@ -157,6 +168,7 @@ MODEL_CONFIGS = {
         "dimension": 4096,
         "max_length": 512,
         "batch_size": 2,
+        "gpu_batch_size": 16,
         "query_prefix": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
         "doc_prefix": "",
         "load_in_8bit": True,
@@ -167,6 +179,7 @@ MODEL_CONFIGS = {
         "dimension": 3584,
         "max_length": 512,
         "batch_size": 1,
+        "gpu_batch_size": 8,
         "query_prefix": "Instruct: Given a query, retrieve relevant passages\nQuery: ",
         "doc_prefix": "",
         "trust_remote_code": True,
@@ -178,9 +191,10 @@ MODEL_CONFIGS = {
         "dimension": 4096,
         "max_length": 4096,
         "batch_size": 1,
+        "gpu_batch_size": 16,
         "prefix": "",
         "trust_remote_code": True,
-        "load_in_8bit": True,
+        "load_in_8bit": False,
         "use_fp16": True,
         "use_native_encode": True,
         "model_kwargs": {
@@ -199,8 +213,14 @@ class OpenSourceEmbeddings:
     """Wrapper for open-source embedding models using sentence-transformers"""
 
     def __init__(self, model_config: Dict[str, Any], device: str = None):
-        self.config = model_config
+        self.config = dict(model_config)  # copy to avoid mutating global config
         self.device = device or get_device()
+
+        # Use gpu_batch_size on CUDA if available
+        if self.device == "cuda" and "gpu_batch_size" in self.config:
+            old_bs = self.config["batch_size"]
+            self.config["batch_size"] = self.config["gpu_batch_size"]
+            logger.info(f"GPU detected: batch_size {old_bs} -> {self.config['batch_size']}")
 
         logger.info(f"Loading model: {model_config['hf_model']}")
         logger.info(f"Device: {self.device}, Expected Dimension: {model_config['dimension']}")

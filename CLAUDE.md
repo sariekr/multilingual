@@ -98,6 +98,7 @@ Soru uretimi `train.csv`'nin tamaminda (~200K/dil) yapilir ama Qdrant'a sadece `
 | `nomic_embed_v1_5` | nomic-ai/nomic-embed-text-v1.5 | 768 | 16 | search_query/search_document prefix |
 | `e5_mistral_7b` | intfloat/e5-mistral-7b-instruct | 4096 | 4 | INT8/CUDA onerilen, 16GB RAM'de cok buyuk |
 | `gte_qwen2_7b` | Alibaba-NLP/gte-Qwen2-7B-instruct | 3584 | 4 | INT8/CUDA onerilen, 16GB RAM'de cok buyuk |
+| `llama_embed_nemotron_8b` | nvidia/llama-embed-nemotron-8b | 4096 | 16 | CUDA gerekli, BF16, flash_attention_2/sdpa, native encode_query/encode_document |
 
 ### Embedding Hizlari (Apple M4, 16GB RAM, MPS/CPU)
 
@@ -611,11 +612,116 @@ Iki asamali eslesme yapilir:
 4. ~~Filtered sonuclarla eval yeniden calistir.~~ **TAMAMLANDI** — Sonuclar yukarida raporlandi.
 
 ## Sonraki Adimlar (Oneriler)
-1. **Daha guclu modelleri dene:** bge_m3, jina-v3, e5-large-instruct — Dil Ayirimi Paradoksu'nu kirabilen bir model var mi?
-2. **Cosine similarity threshold'unu kaldir:** Tum eval modlarinda sadece product_id exact match kullan. Daha temiz sonuclar.
-3. **Soru uretimini Qdrant corpus'una sinirla:** `generate_multilingual_queries.py`'ye `--product_ids_file` parametresi ekle — sadece Qdrant'taki product_id'ler icin soru uret. Bu sayede filtreleme adimi gereksiz olur.
-4. **Daha fazla review indexle:** 20K/dil yerine 50K+ indexleyerek product_id coverage'i artir.
-5. **bge_m3 ve qwen3_emb_06b'yi CUDA GPU'lu bir makinede test et.**
-6. **e5_base ve e5_large_instruct'i dene** — e5 ailesinin boyut etkisi + buyuk modelin cross-lingual'de daha iyi olup olmadigini olc.
+1. ~~**Daha guclu modelleri dene:** bge_m3, jina-v3, e5-large-instruct — Dil Ayirimi Paradoksu'nu kirabilen bir model var mi?~~ **DEVAM EDIYOR** — RunPod A100'de test ediliyor.
+2. ~~**Cosine similarity threshold'unu kaldir:** Tum eval modlarinda sadece product_id exact match kullan.~~ **TAMAMLANDI** — `--no-cosine-fallback` flag eklendi.
+3. **Soru uretimini Qdrant corpus'una sinirla:** Artik gereksiz — `--max_reviews_per_lang 0` ile tum review'lar indexlenebiliyor, coverage %100.
+4. ~~**Daha fazla review indexle:** 20K/dil yerine 50K+ indexleyerek product_id coverage'i artir.~~ **TAMAMLANDI** — `--max_reviews_per_lang 0` (tum set) ve `50000` (50K/dil) secenekleri eklendi.
+5. ~~**bge_m3 ve qwen3_emb_06b'yi CUDA GPU'lu bir makinede test et.**~~ **DEVAM EDIYOR** — RunPod A100'de.
+6. ~~**e5_base ve e5_large_instruct'i dene**~~ **DEVAM EDIYOR** — RunPod A100'de.
 7. **Ceviri kalitesi dogrulamasi:** langdetect/fasttext ile cevirilmis sorularin hedef dilde olup olmadigini kontrol et.
 8. **Reranker pipeline testi:** "retrieve many with minilm → rerank with e5" gibi iki asamali bir pipeline'in cross-lingual performansini olc.
+
+## RunPod GPU ile Calistirma
+
+### Gereksinimler
+- RunPod pod (A100 80GB onerilen, A40 48GB de yeterli)
+- Qdrant binary (docker yok RunPod'da)
+
+### Ilk Kurulum (RunPod)
+
+```bash
+# 1. Repo'yu klonla
+cd /workspace
+git clone https://github.com/sariekr/multilingual.git
+cd multilingual
+
+# 2. Dependency'leri kur
+pip install -r requirements.txt
+pip install accelerate flash-attn --no-build-isolation
+
+# 3. Qdrant'i baslat (docker yok, binary indir)
+wget https://github.com/qdrant/qdrant/releases/download/v1.12.0/qdrant-x86_64-unknown-linux-gnu.tar.gz
+tar --no-same-owner -xzf qdrant-x86_64-unknown-linux-gnu.tar.gz
+nohup ./qdrant > qdrant.log 2>&1 &
+curl http://localhost:6333  # test et
+
+# 4. .env olustur
+echo "QDRANT_LOCAL_URL=http://localhost:6333" > .env
+```
+
+### Bilinen Sorunlar (RunPod)
+
+1. **`docker: command not found`** — RunPod pod'larinda Docker yok. Qdrant binary kullan.
+2. **`tar: Cannot change ownership`** — `tar --no-same-owner` kullan.
+3. **`set_submodule` hatasi (INT8 + custom model)** — `LlamaBidirectionalModel` gibi custom modellerde bitsandbytes INT8 uyumsuz olabiliyor. A100 80GB'de INT8'e gerek yok, BF16 yeterli. Cozum: `load_in_8bit: False` yap.
+4. **`flash_attn not installed`** — `pip install flash-attn --no-build-isolation` ile kur. Kurulum uzun surerse `sdpa` kullan: config'deki `flash_attention_2` -> `sdpa` degistir.
+5. **`tmux: command not found`** — RunPod'da tmux yok. `nohup ... &` ile arka planda calistir.
+6. **Qdrant client/server versiyon uyumsuzlugu uyarisi** — Gozardi edilebilir, calisiyor.
+
+### Model Calistirma Komutlari
+
+Her model icin 3 adim: embed → eval mono+cross → eval true_cross.
+`--no-cosine-fallback` ile sadece product_id exact match kullanilir (temiz sonuclar).
+`--max_reviews_per_lang 50000` ile 50K/dil = 300K toplam review indexlenir.
+`--max_reviews_per_lang 0` ile tum train.csv indexlenir (~200K/dil = 1.2M toplam).
+
+```bash
+# Her model icin (MODEL_NAME'i degistir):
+python -u rag_loader_multilingual.py --model MODEL_NAME --max_reviews_per_lang 50000
+python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_multilingual.json --mode both --top_k 5 --no-cosine-fallback --output_dir evaluation_results
+python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_crosslingual.json --mode true_crosslingual --top_k 5 --output_dir evaluation_results
+```
+
+### Arka Planda Calistirma (nohup)
+
+```bash
+# Embedding (en uzun adim)
+nohup python -u rag_loader_multilingual.py --model MODEL_NAME --max_reviews_per_lang 50000 > embedding_MODEL_NAME.log 2>&1 &
+disown
+
+# Ilerlemeyi takip et
+tail -f embedding_MODEL_NAME.log
+# "DATA LOADING COMPLETED" gorunce bitti
+
+# Eval
+nohup python -u evaluate_multilingual.py --model MODEL_NAME --queries_file benchmark_queries_multilingual.json --mode both --top_k 5 --no-cosine-fallback --output_dir evaluation_results > eval_MODEL_NAME_mono.log 2>&1 &
+```
+
+### Tahmini Embedding Sureleri (A100 80GB, 300K review = 50K/dil)
+
+| Model | Tahmini Hiz | Tahmini Sure | Notlar |
+|-------|-------------|-------------|--------|
+| `e5_small` | ~500+ r/s | ~10 dk | Kucuk, hizli |
+| `e5_base` | ~300+ r/s | ~15 dk | |
+| `minilm_multilingual` | ~500+ r/s | ~10 dk | |
+| `mpnet_multilingual` | ~300+ r/s | ~15 dk | |
+| `nomic_embed_v1_5` | ~300+ r/s | ~15 dk | |
+| `gte_multilingual_base` | ~300+ r/s | ~15 dk | |
+| `e5_large_instruct` | ~150+ r/s | ~30 dk | |
+| `bge_m3` | ~150+ r/s | ~30 dk | Mac'te 22 r/s idi |
+| `jina_v3` | ~150+ r/s | ~30 dk | |
+| `llama_embed_nemotron_8b` | ~35-70 r/s | ~1-2.5 saat | 8B model, BF16, en yavas |
+
+### Sonuclari Mac'e Cekme
+
+```bash
+# RunPod'dan sonuclari indir (Mac'te calistir)
+scp -r runpod:/workspace/multilingual/evaluation_results/ ./evaluation_results_gpu/
+
+# Veya git ile
+# RunPod'da:
+cd /workspace/multilingual
+git add evaluation_results/
+git commit -m "Add GPU benchmark results"
+git push
+# Mac'te:
+git pull
+```
+
+### Yeni CLI Parametreleri
+
+| Parametre | Dosya | Aciklama |
+|-----------|-------|----------|
+| `--max_reviews_per_lang 0` | rag_loader_multilingual.py | Tum review'lari indexle (sampling yok, ~1.2M) |
+| `--max_reviews_per_lang 50000` | rag_loader_multilingual.py | 50K/dil = 300K toplam |
+| `--no-cosine-fallback` | evaluate_multilingual.py | Cosine similarity fallback'i devre disi birak, sadece product_id exact match |
