@@ -568,7 +568,7 @@ def load_and_index_data(
     total_skipped = 0
 
     embedding_batch_size = config["batch_size"]
-    upsert_batch_size = 5000 if device == "cuda" else 200
+    upsert_batch_size = 1000 if device == "cuda" else 200
     points_batch = []
 
     start_time = time.time()
