@@ -110,6 +110,80 @@ Soru uretimi `train.csv`'nin tamaminda (~200K/dil) yapilir ama Qdrant'a sadece `
 | `bge_m3` | ~22 | ~90 dk | Cok yavas, 1024-dim |
 | `qwen3_emb_06b` | ~10 | ~3.3 saat | En yavas, 0.6B param LLM-based |
 
+## Embedding ve Cross-Lingual Retrieval Nasil Calisir
+
+### Embedding Nedir
+
+Embedding modeli bir metni alip cok boyutlu bir uzayda (ornegin 384 veya 4096 boyut) **bir noktaya** donusturur. Bu nokta metnin **anlamini** temsil eder — kelimeleri degil, anlamsal icerigi.
+
+```
+"Batarya omru cok kotu" → [0.12, -0.45, 0.78, ..., 0.33]  (384 sayi)
+"Battery life is terrible" → [0.11, -0.44, 0.79, ..., 0.31]  (384 sayi)
+```
+
+Iki metin **anlamca yakinsa**, vektorleri de uzayda **birbirine yakin** olur. Bu yakinligi cosine similarity ile olcuyoruz (1.0 = ayni yon/anlam, 0.0 = alakasiz).
+
+Bu projede her review = 1 dokuman = 1 embedding. Chunk'lama (buyuk dokumanlari parcalama) yapilmiyor cunku review'lar zaten kisa.
+
+### Monolingual Retrieval Neden Kolay
+
+Ayni dildeki soru ve review, ayni kelime dagarcigi ve gramer yapisini paylasiyor. Model ikisini de ayni bolgeye koyar:
+
+```
+JA soru:  "バッテリーの持ちはどうですか？" → vektor A
+JA review: "バッテリーは3日持ちます"         → vektor B
+→ A ve B uzayda yakin → Qdrant bulur ✓
+```
+
+### Cross-Lingual Retrieval Neden Zor
+
+Asil soru: **Model, farkli dillerdeki ayni anlami ayni bolgeye koyuyor mu?**
+
+```
+DE soru:  "Wie ist die Akkulaufzeit?"     → vektor A
+JA review: "バッテリーは3日持ちます"         → vektor B
+→ A ve B uzayda yakin mi? → Modele bagli
+```
+
+Eger model **dil-bagimsiz anlam uzayi (cross-lingual alignment)** ogrenmisse, "batarya omru" kavrami hangi dilde ifade edilirse edilsin ayni bolgeye duser. O zaman Almanca soruyla Japonca review'i bulabilirsin.
+
+Ama gercekte cogu model bunu tam yapamiyor. Iki farkli yaklasim goruyoruz:
+
+### Guclu Dil Ayirimi (e5_small ornegi)
+
+```
+Embedding uzayi:
+  [JA adasi: JA review'lar burada kumelenmis]
+  [DE adasi: DE review'lar burada kumelenmis]
+  [EN adasi: EN review'lar burada kumelenmis]
+```
+
+Her dil kendi "ada"sinda. Japonca soru → vektor JA adasina dusuyor → sadece JA review'lari buluyor.
+- **Monolingual'de iyi:** Dil filtresi olmasa bile dogru dildeki review'lari buluyor.
+- **Cross-lingual'de basarisiz:** Almanca soruyla Japonca review bulamiyor cunku adalar birbirinden cok uzakta.
+
+### Zayif Dil Ayirimi (minilm_multilingual ornegi)
+
+```
+Embedding uzayi:
+  [JA, DE, EN, FR hep bir arada, karisik]
+```
+
+Tum diller ayni bolgede karisik → Japonca soruyla bazen Almanca review bulunabiliyor.
+- **Monolingual'de kotu:** Japonca soru soruldugunda Fransizca review'lar da yakin cikiyor (gurultu).
+- **Cross-lingual'de kismen basarili:** Dillerarasi transfer mumkun cunku vektorler karisik.
+
+### Dil Ayirimi Paradoksu (Bu Benchmark'in Ana Bulgulari)
+
+| Ozellik | Guclu Ayirim (e5_small) | Zayif Ayirim (minilm) |
+|---------|------------------------|----------------------|
+| Embedding uzayi | Her dil ayri ada | Tum diller karisik |
+| Monolingual | Iyi (dogru dili hassas bulur) | Kotu (diller arasi gurultu) |
+| Cross-lingual | Basarisiz (adalar arasi gecis yok) | Kismen basarili (karisiklik avantaj) |
+| Ideal kullanim | Tek dilde RAG sistemi | Cok dilli arama sistemi |
+
+**Ideal model:** Anlami dil-bagimsiz kodlarken, dil bilgisini de koruyan bir model. Yani "batarya omru" JA/DE/EN'de ayni bolgeye duser ama model yine de hangi dilin hangi oldugunu bilir. Bu benchmark, mevcut modellerin bunu ne kadar basarabildigini olcer.
+
 ## Mimari Kararlar
 
 ### Qdrant
