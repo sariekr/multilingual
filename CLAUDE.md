@@ -798,6 +798,17 @@ python -u evaluate_multilingual.py --model llama_embed_nemotron_8b --queries_fil
 ```
 **Not:** Bu eval, nemotron'un 50K/dil collection'indan yapilacak. 1.2M ile yeniden embed edilirse daha adil olur.
 
+### Oncelik 4 — Category Filter Deneyi (Tum modeller bittikten sonra)
+
+**Fikir:** True cross-lingual'de arama uzayini `product_category` filtresi ile kucultmek (ornegin sadece "electronics" review'lerde aramak). 1.2M yerine ~50-100K review'de arama.
+
+**Implementasyon:** `evaluate_multilingual.py`'ye `--category_filter electronics` flag'i ekle, `_search_qdrant`'ta ek `FieldCondition` koy (~10-15 satir degisiklik).
+
+**Beklenti:**
+- **e5 modelleri icin yardim etmez.** Sorun arama uzayi degil, dil adalari. Japonca query 50K electronics'te de arasa yine Japonca review'leri dondurur.
+- **minilm icin biraz yardim edebilir.** Diller zaten karisik, daha az aday = dogru review'in Top-5'e girme sansi artar.
+- **Paper icin degerli:** "Arama uzayi kucultuldugunde bile cross-lingual accuracy dusuk kaliyor → sorun search space degil language separation" diye yazilir. Controlled experiment olarak guclu bir arguman.
+
 ### RunPod Baslangic Checklist (Yeni Session)
 
 ```bash
